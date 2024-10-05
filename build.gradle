@@ -1,0 +1,107 @@
+plugins {
+    id 'java'
+    id 'application'
+    id 'org.openjfx.javafxplugin' version '0.1.0'
+}
+
+repositories {
+    mavenCentral()
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(22)
+    }
+    sourceCompatibility = JavaVersion.VERSION_22
+    targetCompatibility = JavaVersion.VERSION_22
+}
+
+javafx {
+    version = '23'
+    modules = ['javafx.controls', 'javafx.fxml', 'javafx.graphics']
+}
+
+dependencies {
+    implementation files('src/libs/opencv-490.jar')
+}
+
+application {
+    mainClass = 'com.arproject.ARApp$Launcher'
+}
+
+// Verification task - defined before it's used
+tasks.register('verifyOpenCV') {
+    doLast {
+        def libsDir = file("src/libs")
+        def osName = System.getProperty('os.name').toLowerCase()
+        def dllName = osName.contains('windows') ? 'opencv_java490.dll' :
+                osName.contains('linux') ? 'libopencv_java490.so' :
+                        'libopencv_java490.dylib'
+
+        def nativeLib = new File(libsDir, dllName)
+        def jarFile = new File(libsDir, "opencv-490.jar")
+
+        println """
+            OpenCV Verification:
+            -------------------
+            Libraries directory: ${libsDir.absolutePath}
+            Libraries directory exists: ${libsDir.exists()}
+            OpenCV native library (${dllName}) exists: ${nativeLib.exists()}
+            OpenCV JAR exists: ${jarFile.exists()}
+            Native library path: ${nativeLib.absolutePath}
+        """.stripIndent()
+
+        if (!nativeLib.exists()) {
+            throw new GradleException("OpenCV native library (${dllName}) not found in ${libsDir.absolutePath}")
+        }
+        if (!jarFile.exists()) {
+            throw new GradleException("opencv-490.jar not found in ${libsDir.absolutePath}")
+        }
+    }
+}
+
+// Copy native libraries task - defined before it's used
+tasks.register('copyNativeLibs', Copy) {
+    from file("src/libs")
+    include "**/*.dll", "**/*.so", "**/*.dylib"
+    into file("${buildDir}/libs")
+}
+
+// Run task configuration
+tasks.named('run') {
+    dependsOn 'verifyOpenCV', 'copyNativeLibs'
+
+    // Set multiple library paths to ensure coverage
+    def libPath = file("src/libs").absolutePath
+    environment "PATH", System.getenv("PATH") + File.pathSeparator + libPath
+
+    systemProperties = [
+            'java.library.path': libPath,
+            'opencv.lib.path': libPath,
+            'opencv.libpath': libPath,
+            'opencv.dll.path': libPath
+    ]
+
+    jvmArgs = [
+            '--add-opens=java.base/java.lang=ALL-UNNAMED',
+            '--add-opens=java.base/java.io=ALL-UNNAMED',
+            "-Djava.library.path=${libPath}",
+            '-verbose:jni'  // Add JNI debugging
+    ]
+
+    // Print extended debug information
+    doFirst {
+        println """
+            Runtime Information:
+            -------------------
+            Working directory: ${workingDir}
+            Java library path: ${System.getProperty('java.library.path')}
+            System PATH: ${System.getenv('PATH')}
+            OS Name: ${System.getProperty('os.name')}
+            OS Architecture: ${System.getProperty('os.arch')}
+            Java Version: ${System.getProperty('java.version')}
+            Java Home: ${System.getProperty('java.home')}
+            User Dir: ${System.getProperty('user.dir')}
+        """.stripIndent()
+    }
+}
